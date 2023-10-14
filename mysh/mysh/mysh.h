@@ -80,7 +80,7 @@ void mysh_init          (void);     /** mysh 初始化函数 **/
 void mysh_task_handler  (void);     /** mysh 任务函数 @note 该函数一般放置在 while(1) 以便及时读取用户输入 **/
 
 /**
- * @brief 
+ * @brief 其他 API
  */
 int  mysh_add_cmd       (const struct mysh_cmd_dsc* dsc);   /** 添加命令 **/
 void mysh_put_string    (const char* s);                    /** 输出一个字符串 **/
