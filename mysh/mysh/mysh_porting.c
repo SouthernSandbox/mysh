@@ -25,8 +25,9 @@ extern "C" {
  */
 char mysh_get_char(void)
 {
-	char ch = 0;
-    dev_uart1_read(&ch, sizeof(ch));
+    char ch = 0;
+    // get a character, such as: dev_uart1_read(&ch, sizeof(ch));
+    // ...
     return ch;
 }
 
@@ -39,7 +40,7 @@ char mysh_get_char(void)
  */
 void mysh_put_char(char ch)
 {
-    dev_uart1_write(&ch, sizeof(ch));
+    // put a character, such as: dev_uart1_write(&ch, sizeof(ch));
 }
 
 
@@ -54,7 +55,7 @@ void mysh_put_char(char ch)
  */
 void mysh_get_time_data(mysh_uint8_t hms[3])
 {
-    memset(hms, 0, 3 * sizeof(mysh_uint8_t));
+
 }
 #endif
 
