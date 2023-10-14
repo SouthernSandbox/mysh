@@ -10,7 +10,7 @@
  */
 
 #include "mysh.h"
-#include "dev_uart.h"
+// your headers
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,7 +27,7 @@ char mysh_get_char(void)
 {
     char ch = 0;
     // get a character, such as: dev_uart1_read(&ch, sizeof(ch));
-    // ...
+    // your code
     return ch;
 }
 
@@ -41,6 +41,7 @@ char mysh_get_char(void)
 void mysh_put_char(char ch)
 {
     // put a character, such as: dev_uart1_write(&ch, sizeof(ch));
+    // your code
 }
 
 
@@ -55,7 +56,7 @@ void mysh_put_char(char ch)
  */
 void mysh_get_time_data(mysh_uint8_t hms[3])
 {
-
+    // your code
 }
 #endif
 
