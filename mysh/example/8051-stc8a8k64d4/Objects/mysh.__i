@@ -1,0 +1,1 @@
+"mysh\mysh.c" LARGE OPTIMIZE (8,SPEED) BROWSE INCDIR(.\user;.\mysh;.\board) DEBUG OBJECTEXTEND PRINT(.\Listings\mysh.lst) OBJECT(.\Objects\mysh.obj)

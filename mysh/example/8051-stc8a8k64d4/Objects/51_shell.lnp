@@ -1,0 +1,11 @@
+".\Objects\STARTUP.obj",
+".\Objects\main.obj",
+".\Objects\it.obj",
+".\Objects\dev_uart.obj",
+".\Objects\dev_timer0.obj",
+".\Objects\mysh.obj",
+".\Objects\mysh_porting.obj" 
+TO ".\Objects\51_shell" 
+PRINT(".\Listings\51_shell.m51") RAMSIZE(256) 
+DISABLEWARNING (16) 
+NOOVERLAY 

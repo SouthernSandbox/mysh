@@ -1,0 +1,84 @@
+C51 COMPILER V9.57.0.0   DEV_TIMER0                                                        10/14/2023 13:40:47 PAGE 1   
+
+
+C51 COMPILER V9.57.0.0, COMPILATION OF MODULE DEV_TIMER0
+OBJECT MODULE PLACED IN .\Objects\dev_timer0.obj
+COMPILER INVOKED BY: D:\Keil5_C51\install\C51\BIN\C51.EXE board\dev_timer0.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(.\use
+                    -r;.\mysh;.\board) DEBUG OBJECTEXTEND PRINT(.\Listings\dev_timer0.lst) OBJECT(.\Objects\dev_timer0.obj)
+
+line level    source
+
+   1          #include "dev_timer0.h"
+   2          
+   3          #define TIMER0_TL       0x66
+   4          #define TIMER0_TH       0x7E
+   5          
+   6          struct sys_tick_mgr
+   7          {
+   8                  tick_t tick;
+   9          };
+  10          static struct sys_tick_mgr mgr;
+  11          
+  12          
+  13          
+  14          void dev_timer0_init (void)
+  15          {
+  16   1          /** 定时为 1ms **/
+  17   1              AUXR |= 0x80;           // 定时器时钟1T模式
+  18   1              TMOD &= 0xF0;           // 设置定时器模式
+  19   1              TL0 = TIMER0_TL;        // 设置定时初始值
+  20   1              TH0 = TIMER0_TH;        // 设置定时初始值
+  21   1              TF0 = 0;                    // 清除TF0标志
+  22   1              TR0 = 1;                    // 定时器0开始计时
+  23   1          ET0 = 1;            // 启用定时器0中断
+  24   1      
+  25   1          dev_timer0_start();
+  26   1      
+  27   1          /** 初始化 mgr **/
+  28   1          mgr.tick = 0;
+  29   1      }
+  30          
+  31          
+  32          tick_t dev_timer0_get_tick (void)
+  33          {
+  34   1          return mgr.tick;
+  35   1      }
+  36          
+  37          
+  38          void dev_timer0_blocked_mdelay (uint32_t ms)
+  39          {
+  40   1              uint32_t record = mgr.tick;
+  41   1              while(1)
+  42   1              {
+  43   2                      if(mgr.tick - record >= ms)
+  44   2                              break;
+  45   2              }
+  46   1      }
+  47          
+  48          
+  49          
+  50          
+  51          
+  52          
+  53          
+  54          
+C51 COMPILER V9.57.0.0   DEV_TIMER0                                                        10/14/2023 13:40:47 PAGE 2   
+
+  55          void dev_timer0_irq_handler(void)
+  56          {
+  57   1          ++mgr.tick;
+  58   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    163    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      4       8
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

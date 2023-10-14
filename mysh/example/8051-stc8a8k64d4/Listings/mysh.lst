@@ -1,0 +1,957 @@
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 1   
+
+
+C51 COMPILER V9.57.0.0, COMPILATION OF MODULE MYSH
+OBJECT MODULE PLACED IN .\Objects\mysh.obj
+COMPILER INVOKED BY: D:\Keil5_C51\install\C51\BIN\C51.EXE mysh\mysh.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(.\user;.\mys
+                    -h;.\board) DEBUG OBJECTEXTEND PRINT(.\Listings\mysh.lst) OBJECT(.\Objects\mysh.obj)
+
+line level    source
+
+   1          /**
+   2           * @file    mysh.c
+   3           * @author  Southern Sandbox
+   4           * @brief   mysh 的具体实现
+   5           * @version 0.1
+   6           * @date    2023-10-14
+   7           * 
+   8           * @copyright Copyright (c) 2023
+   9           * 
+  10           */
+  11          
+  12          #include "mysh.h"
+  13          
+  14          /**
+  15           * @brief mysh 管理器
+  16           * 
+  17           * @note mysh_mgr 主要由如下几个结构体成员：
+  18           *          · mysh_rd       用于管理普通输入字符的存储、字符数量和光标的位置
+  19           *          · mysh_cseq     用于管理终端控制序列的输入
+  20           *          · mysh_flag     用于管理标志位
+  21           *          · mysh_cmd      用于管理命令和命令行的参数
+  22           *          · mysh_opt      用于管理一些选项功能
+  23           */
+  24          struct mysh_mgr
+  25          {
+  26              /** 读入信息 **/
+  27              struct mysh_rd
+  28              {
+  29                  char buf[MYSH_RX_BUF_MAX + 1];  /** 接收缓冲区，多留出的一个字节用于存储 '\0' **
+             -/
+  30                  mysh_rd_cnt_t count;            /** 读取计数 **/
+  31                  mysh_rd_cnt_t cursor_pos;       /** 光标偏移量，始终为正值，计算方式: cursor 位�
+             -� 与 rd.buf[rd.count] 之间的字符数 **/
+  32              } rd;
+  33          
+  34              #if MYSH_SUPPORT_DIR_KEY
+  35              /** 控制序列信息 **/
+  36              struct mysh_cseq
+  37              {
+  38                  char buf;               /** 终端控制序列缓冲区 **/
+  39                  mysh_uint8_t count;     /** 读取计数 **/
+  40          
+  41              } cseq;
+  42              #endif
+  43          
+  44              /** 标志位集 **/
+  45              union mysh_flag
+  46              {
+  47                  struct mysh_flag_set
+  48                  {
+  49                      mysh_flag_val_t is_print_shell_info     : 1;    /** 是否打印了终端信息 **/
+  50                      mysh_flag_val_t is_endl                 : 1;    /** 是否接收到了结束字符 **/
+  51                      mysh_flag_val_t is_cseq                 : 1;    /** 是否接收到了终端控制序列 **/
+  52                  } set;
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 2   
+
+  53                  mysh_flag_val_t all;                                /** 该成员用于将全部 flag 进行快速
+             -赋值 **/
+  54              } flag;     /** 标志位集 **/
+  55          
+  56              /** 指令信息 **/
+  57              struct mysh_cmd
+  58              {
+  59                  const struct mysh_cmd_dsc* list[MYSH_CMD_COUNT_MAX];
+  60                  mysh_cmd_cnt_t list_count;
+  61                  struct mysh_cmd_arg
+  62                  {
+  63                      char    c;                       /** 参数数量 **/
+  64                      char*   v[MYSH_ARGC_MAX];        /** 参数数组 **/
+  65                  } arg;
+  66              } cmd;
+  67          
+  68              /** mysh 选项 **/
+  69              union mysh_opt
+  70              {
+  71                  struct mysh_opt_item
+  72                  {
+  73                      mysh_opt_val_t echo     : 2;    /** 回显选项 **/
+  74                  } item;
+  75                  mysh_opt_val_t all;
+  76              } opt;
+  77          
+  78          };
+  79          static struct mysh_mgr mgr;
+  80          
+  81          
+  82          
+  83          
+  84          
+  85          
+  86          /** ********************************* **
+  87           *                                     *
+  88           *             Porting API             *
+  89           *          for Input / Output         *
+  90           *                                     *
+  91           ** ********************************* **/
+  92          extern char mysh_get_char (void);
+  93          extern void mysh_put_char (char ch);
+  94          #if MYSH_SUPPORT_PRINT_TIME_INFO
+  95          extern void mysh_get_time_data (mysh_uint8_t hms[3]);
+  96          #endif
+  97          
+  98          void mysh_put_echo (char ch);
+  99          void mysh_put_string (const char* s);
+ 100          #if MYSH_SUPPORT_PRINT_TIME_INFO
+ 101          void mysh_put_time_info (void);
+ 102          #endif
+ 103          
+ 104          
+ 105          void mysh_put_echo(char ch)
+ 106          {
+ 107   1          /** 字符回显 **/
+ 108   1          switch(mgr.opt.item.echo)
+ 109   1          {
+ 110   2          case 0: mysh_put_char(ch); break;
+ 111   2          case 1: break;
+ 112   2          case 2: mysh_put_char('*'); break;
+ 113   2          }
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 3   
+
+ 114   1      }
+ 115          
+ 116          /**
+ 117           * @brief 输出一串字符串
+ 118           */
+ 119          void mysh_put_string(const char* s)
+ 120          {
+ 121   1          for( ; *s != '\0'; s++)
+ 122   1              mysh_put_echo(*s);
+ 123   1      }
+ 124          
+ 125          /**
+ 126           * @brief 输出终端控制序列
+ 127           */
+ 128          #define mysh_put_shell_ctrl(word)   mysh_put_string(word)
+ 129          
+ 130          /**
+ 131           * @brief 输出终端彩色控制序列
+ 132           */
+ 133          #if MYSH_SUPPORT_PRINT_MULTI_COLOR
+ 134              #define mysh_put_color_ctrl(word)   mysh_put_shell_ctrl(word)
+ 135          #else
+                  #define mysh_put_color_ctrl(word)
+              #endif
+ 138          
+ 139          /**
+ 140           * @brief 输出时间信息
+ 141           */
+ 142          #if MYSH_SUPPORT_PRINT_TIME_INFO
+ 143          void mysh_put_time_info(void)
+ 144          {
+ 145   1          char buf[12] = "[00:00:00] \0";
+ 146   1          mysh_uint8_t hms[3], i;
+ 147   1          mysh_get_time_data(hms);
+ 148   1      
+ 149   1          for(i = 1 ; i <= 7; i += 3)
+ 150   1          {
+ 151   2              buf[(mysh_uint8_t) i]      += hms[i / 3] / 10;
+ 152   2              buf[(mysh_uint8_t) i + 1]  += hms[i / 3] % 10;
+ 153   2          }
+ 154   1      
+ 155   1          mysh_put_string(buf);
+ 156   1      }
+ 157          #else
+                  #define mysh_put_time_info()
+              #endif
+ 160          
+ 161          
+ 162          
+ 163          
+ 164          
+ 165          
+ 166          
+ 167          
+ 168          /** ********************************* **
+ 169           *                                     *
+ 170           *            String Function          *
+ 171           *                                     *
+ 172           ** ********************************* **/
+ 173          static int _mysh_str_cmp (const char* s1, const char* s2);
+ 174          static char* _mysh_str_tok (char* s, const char delim);
+ 175          
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 4   
+
+ 176          
+ 177          /**
+ 178           * @brief 比较两个字符串是否相等
+ 179           *
+ 180           * @param s1
+ 181           * @param s2
+ 182           * @return 0: 字符串相等，-1: 字符串不相等
+ 183           */
+ 184          static int _mysh_str_cmp(const char* s1, const char* s2)
+ 185          {
+ 186   1          for( ; (*s1 != '\0') && (*s1 == *s2); s1++, s2++);
+ 187   1          return -(*s1 != *s2);
+ 188   1      }
+ 189          
+ 190          
+ 191          /**
+ 192           * @brief 将字符串以分隔符 delim 进行分割，并返回分割后字符串的地址
+ 193           *
+ 194           * @warning 该函数将修改原字符串，注意时请注意
+ 195           *
+ 196           * @note 本函数采用偏移指针 s 自身的方式来来查找和替换字符，这样做是为了缩�
+             -��最后编译后 code 的大小
+ 197           *
+ 198           * @param s1    原字符串
+ 199           * @param delim 分隔符
+ 200           *
+ 201           * @return  NULL: 该字符串不存在 delim
+ 202           *          其他: 子字符串首地址
+ 203           */
+ 204          static char* _mysh_str_tok (char* s, const char delim)
+ 205          {
+ 206   1          static char* next = NULL;
+ 207   1          mysh_rd_cnt_t i = 0;
+ 208   1      
+ 209   1          /** 判定字符串的合法性 **/
+ 210   1          if(s == NULL)
+ 211   1          {
+ 212   2              if(next == NULL)
+ 213   2                  return NULL;
+ 214   2              s = next;
+ 215   2          }
+ 216   1      
+ 217   1          /** 遍历查找分隔符 **/
+ 218   1          for( ; *s != '\0' && *s != delim; ++s, ++i);
+ 219   1      
+ 220   1          /** 将分隔符替换为 '\0' **/
+ 221   1          for( ; *s == delim; ++s, ++i)
+ 222   1              *s = '\0';
+ 223   1      
+ 224   1          /** 重置 next 指针位置，若下一个字符串存在则令 next 指向下一个字符串，否�
+             -�重新指向 NULL **/
+ 225   1          if(*s != '\0')
+ 226   1              next = s;
+ 227   1          else
+ 228   1              next = NULL;
+ 229   1      
+ 230   1          return s - i;
+ 231   1      }
+ 232          
+ 233          
+ 234          
+ 235          
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 5   
+
+ 236          
+ 237          
+ 238          
+ 239          
+ 240          
+ 241          
+ 242          
+ 243          
+ 244          #if MYSH_SUPPORT_DIR_KEY
+ 245          /** ********************************* **
+ 246           *                                     *
+ 247           *              Static API             *
+ 248           *         for Control Sequence        *
+ 249           *                                     *
+ 250           ** ********************************* **/
+ 251          static void _mysh_mgr_cseq_clear (void);
+ 252          #if !MYSH_SUPPORT_DIR_KEY_FILTER
+ 253          static void _mysh_cseq_cursor_move_left (void);
+ 254          static void _mysh_cseq_cursor_move_right (void);
+ 255          static void _mysh_remove_print_char (void);
+ 256          static void _mysh_insert_print_char (char ch);
+ 257          #endif
+ 258          static void _mysh_push_cseq_char (char ch);
+ 259          
+ 260          
+ 261          /**
+ 262           * @brief 终端控制序列重置
+ 263           */
+ 264          static void _mysh_mgr_cseq_clear(void)
+ 265          {
+ 266   1          memset(&mgr.cseq, 0, sizeof(mgr.cseq));
+ 267   1          mgr.flag.set.is_cseq = 0;
+ 268   1      }
+ 269          
+ 270          #if !MYSH_SUPPORT_DIR_KEY_FILTER
+ 271          /**
+ 272           * @brief 执行光标左移操作
+ 273           */
+ 274          static void _mysh_cseq_cursor_move_left(void)
+ 275          {
+ 276   1          if(mgr.rd.cursor_pos < mgr.rd.count)
+ 277   1          {
+ 278   2              mgr.rd.cursor_pos++;
+ 279   2              mysh_put_char('\b');
+ 280   2          }
+ 281   1      }
+ 282          
+ 283          
+ 284          /**
+ 285           * @brief 执行光标右移操作
+ 286           */
+ 287          static void _mysh_cseq_cursor_move_right(void)
+ 288          {
+ 289   1          if(mgr.rd.cursor_pos > 0)
+ 290   1          {
+ 291   2              mgr.rd.cursor_pos--;
+ 292   2              mysh_put_shell_ctrl( MYSH_SHELL_CTRL_MOVE_CURSOR_RIGHT(1) );
+ 293   2          }
+ 294   1      }
+ 295          
+ 296          
+ 297          /**
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 6   
+
+ 298           * @brief 以光标当前所在位置，移除一个已打印字符，并重新打印 rd.buf
+ 299           * 
+ 300           * @note 该函数仅在光标位置不位于用户输入的最后一个字符时使用
+ 301           */
+ 302          static void _mysh_remove_print_char(void)
+ 303          {
+ 304   1          mysh_rd_cnt_t ofs = mgr.rd.count - mgr.rd.cursor_pos;
+ 305   1          mysh_rd_cnt_t i = 0;
+ 306   1      
+ 307   1          /** 当光标指向当前输入的最开端时，退格不再生效 **/
+ 308   1          if(!ofs)
+ 309   1              return;
+ 310   1      
+ 311   1          /** 先退格一步，保存当前光标的位置，并清空光标后面所有字符 **/
+ 312   1          mysh_put_shell_ctrl( "\b"
+ 314   1                               MYSH_SHELL_CTRL_STORE_CURSOR()
+ 314   1                               MYSH_SHELL_CTRL_CLEAR_AFTER_CURSOR() );
+ 315   1      
+ 316   1          /** 在内存上移动光标后面的字符 @note 为避免破坏内存，此处的赋值是逐字节�
+             -��行的 **/
+ 317   1          for(i = ofs; i < ofs + mgr.rd.cursor_pos; ++i)
+ 318   1              mgr.rd.buf[i - 1] = mgr.rd.buf[i];
+ 319   1          mgr.rd.buf[mgr.rd.count - 1] = '\0';
+ 320   1      
+ 321   1          /** 打印后面的字符 **/
+ 322   1          mysh_put_string(mgr.rd.buf + ofs - 1);
+ 323   1      
+ 324   1          /** 光标归位 **/
+ 325   1          mysh_put_shell_ctrl( MYSH_SHELL_CTRL_RESTORE_CURSOR() );
+ 326   1      
+ 327   1          /** 重新更新 rd 数据 **/
+ 328   1          mgr.rd.count--;
+ 329   1      }
+ 330          
+ 331          
+ 332          /** 以光标当前所在位置，插入一个新的字符，并重新打印 rd.buf **/
+ 333          static void _mysh_insert_print_char(char ch)
+ 334          {
+ 335   1          mysh_rd_cnt_t ofs = mgr.rd.count - mgr.rd.cursor_pos;
+ 336   1          mysh_rd_cnt_t i = 0;
+ 337   1      
+ 338   1          /** 保存当前光标的位置，并清空光标后面所有字符 **/
+ 339   1          mysh_put_shell_ctrl( MYSH_SHELL_CTRL_STORE_CURSOR()
+ 340   1                               MYSH_SHELL_CTRL_CLEAR_AFTER_CURSOR() );
+ 341   1      
+ 342   1          /** 在内存上移动光标后面的字符 **/
+ 343   1          for(i = mgr.rd.count; i > ofs; --i)
+ 344   1               mgr.rd.buf[i] = mgr.rd.buf[i - 1];
+ 345   1          mgr.rd.buf[mgr.rd.count + 1] = '\0';
+ 346   1      
+ 347   1          /** 将新字符插入到字符串中 **/
+ 348   1          mgr.rd.buf[ofs] = ch;
+ 349   1      
+ 350   1          /** 打印后面的字符 **/
+ 351   1          mysh_put_string(mgr.rd.buf + ofs);
+ 352   1      
+ 353   1          /** 光标归位，并向右/后移动一格 **/
+ 354   1          mysh_put_shell_ctrl( MYSH_SHELL_CTRL_RESTORE_CURSOR()
+ 355   1                               MYSH_SHELL_CTRL_MOVE_CURSOR_RIGHT(1) );
+ 356   1      
+ 357   1          /** 重新更新 rd 数据 **/
+ 358   1          mgr.rd.count++;
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 7   
+
+ 359   1      }
+ 360          #endif
+ 361          
+ 362          
+ 363          /**
+ 364           * @brief 将一个普通字符推入到控制序列缓存，并控制光标移动
+ 365           *
+ 366           * @param ch
+ 367           */
+ 368          static void _mysh_push_cseq_char (char ch)
+ 369          {
+ 370   1          /** 通过求和方式储存控制序列 **/
+ 371   1          mgr.cseq.buf += ch;
+ 372   1          mgr.cseq.count++;
+ 373   1      
+ 374   1          /** 控制序列查表 **/
+ 375   1          switch (mgr.cseq.buf)
+ 376   1          {
+ 377   2          case MYSH_CTRL_SEQUENCE_DIR_UP_KEY:     /** 上 **/
+ 378   2          case MYSH_CTRL_SEQUENCE_DIR_DOWN_KEY:   /** 下 **/
+ 379   2          #ifdef MYSH_SUPPORT_DIR_KEY
+ 380   2              // ...
+ 381   2          #endif
+ 382   2              break;
+ 383   2      
+ 384   2          case MYSH_CTRL_SEQUENCE_DIR_RIGHT_KEY:  /** 右 **/
+ 385   2          #ifdef MYSH_SUPPORT_DIR_KEY
+ 386   2              #if !MYSH_SUPPORT_DIR_KEY_FILTER
+ 387   2              _mysh_cseq_cursor_move_right();
+ 388   2              #endif
+ 389   2          #endif
+ 390   2              break;
+ 391   2      
+ 392   2          case MYSH_CTRL_SEQUENCE_DIR_LEFT_KEY:   /** 左 **/
+ 393   2          #ifdef MYSH_SUPPORT_DIR_KEY
+ 394   2              #if !MYSH_SUPPORT_DIR_KEY_FILTER
+ 395   2              _mysh_cseq_cursor_move_left();
+ 396   2              #endif
+ 397   2          #endif
+ 398   2              break;
+ 399   2      
+ 400   2          default:
+ 401   2              break;
+ 402   2          }
+ 403   1      
+ 404   1          if(mgr.cseq.count == MYSH_CTRL_SEQUENCE_DIR_BYTES)
+ 405   1              _mysh_mgr_cseq_clear();
+ 406   1      }
+ 407          #endif
+ 408          
+ 409          
+ 410          
+ 411          
+ 412          
+ 413          
+ 414          /** ********************************* **
+ 415           *                                     *
+ 416           *              Static API             *
+ 417           *                                     *
+ 418           ** ********************************* **/
+ 419          static void _mysh_mgr_rd_clear          (void);
+ 420          static void _mysh_print_shell_info      (void);
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 8   
+
+ 421          static void _mysh_print_backpace        (void);
+ 422          static void _mysh_str_split             (char* s);
+ 423          static void _mysh_push_normal_char      (char ch);
+ 424          #if MYSH_SUPPORT_TAB_COMPETION
+ 425          static void _mysh_cmd_completion        (void);
+ 426          #endif
+ 427          static void _mysh_get_input             (void);
+ 428          static void _mysh_cmd_search_and_exec   (void);
+ 429          
+ 430          
+ 431          
+ 432          
+ 433          
+ 434          /**
+ 435           * @brief 重置管理器
+ 436           */
+ 437          static void _mysh_mgr_rd_clear(void)
+ 438          {
+ 439   1          /** 读取重置 **/
+ 440   1          memset(&mgr.rd, 0, sizeof(mgr.rd));
+ 441   1      
+ 442   1          #if MYSH_SUPPORT_DIR_KEY
+ 443   1          /** 终端控制序列重置 **/
+ 444   1          _mysh_mgr_cseq_clear();
+ 445   1          #endif
+ 446   1      
+ 447   1          /** 标志位重置 **/
+ 448   1          mgr.flag.all = 0;
+ 449   1      
+ 450   1          /** 参数重置 **/
+ 451   1          memset(&mgr.cmd.arg, 0, sizeof(mgr.cmd.arg));
+ 452   1      }
+ 453          
+ 454          
+ 455          /**
+ 456           * @brief 打印终端提示信息
+ 457           */
+ 458          static void _mysh_print_shell_info (void)
+ 459          {
+ 460   1          mysh_put_color_ctrl(MYSH_SHELL_INFO_COLOR());
+ 461   1          mysh_put_time_info();
+ 462   1          mysh_put_string("mysh > ");
+ 463   1          mysh_put_color_ctrl(MYSH_SHELL_RESET_COLOR());
+ 464   1      }
+ 465          
+ 466          
+ 467          /**
+ 468           * @brief 在终端输出退格键，同时实现字符删除效果
+ 469           * 
+ 470           * @note 该函数仅在光标位于用户输入字符串的末尾时才会调用
+ 471           */
+ 472          static void _mysh_print_backpace (void)
+ 473          {
+ 474   1          if(mgr.rd.count > 0)
+ 475   1          {
+ 476   2              mgr.rd.buf[--mgr.rd.count] = '\0';
+ 477   2              mysh_put_string("\b \b");
+ 478   2          }
+ 479   1      }
+ 480          
+ 481          
+ 482          /**
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 9   
+
+ 483           * @brief 将目标字符串分割为若干 token 子字符串，token 的地址将被存储到 mgr 的 ar
+             -gv[] 中
+ 484           * @note  该函数将破坏原有的字符串
+ 485           * @param s
+ 486           */
+ 487          static void _mysh_str_split (char* s)
+ 488          {
+ 489   1          char* token = _mysh_str_tok(s, MYSH_DELIM_CHAR);
+ 490   1          mgr.cmd.arg.c = 0;
+ 491   1      
+ 492   1          if(token != NULL)
+ 493   1          {
+ 494   2              memset(mgr.cmd.arg.v, 0, sizeof(mgr.cmd.arg.v));
+ 495   2              mgr.cmd.arg.v[0] = token;
+ 496   2          }
+ 497   1          else
+ 498   1              return;
+ 499   1      
+ 500   1          while(token != NULL)
+ 501   1          {
+ 502   2              if(++mgr.cmd.arg.c >= MYSH_ARGC_MAX)
+ 503   2                  break;
+ 504   2      
+ 505   2              token = _mysh_str_tok(NULL, MYSH_DELIM_CHAR);
+ 506   2              mgr.cmd.arg.v[(mysh_uint8_t) mgr.cmd.arg.c] = token;
+ 507   2          }
+ 508   1      }
+ 509          
+ 510          
+ 511          
+ 512          
+ 513          /**
+ 514           * @brief 将一个普通字符推入到缓冲区，并回显这个字符
+ 515           * @param ch
+ 516           */
+ 517          static void _mysh_push_normal_char (char ch)
+ 518          {
+ 519   1          /** 其余的字符将会被进一步处理 **/
+ 520   1          mysh_put_echo(mgr.rd.buf[mgr.rd.count++] = ch);
+ 521   1      }
+ 522          
+ 523          
+ 524          #if MYSH_SUPPORT_TAB_COMPETION
+ 525          /**
+ 526           * @brief 命令名称补全
+ 527           */
+ 528          static void _mysh_cmd_completion (void)
+ 529          {
+ 530   1          mysh_cmd_cnt_t i = 0;
+ 531   1          mysh_cmd_cnt_t cpt_cnt = 0;                 /** 符合补全的指令数 **/
+ 532   1          const struct mysh_cmd_dsc* only = NULL;     /** 该指针仅在只有一个指令符合补全时指向
+             -那个指令描述对象 **/
+ 533   1      
+ 534   1          /** 跳过空接收 **/
+ 535   1          if(!mgr.rd.count)
+ 536   1              return;
+ 537   1      
+ 538   1          /** 遍历指令表，查找符合补全要求的指令( name len > rd count )并打印 **/
+ 539   1          for(i = 0; i < mgr.cmd.list_count; ++i)
+ 540   1          {
+ 541   2              const struct mysh_cmd_dsc* dsc = mgr.cmd.list[i];
+ 542   2              mysh_rd_cnt_t j = 0;
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 10  
+
+ 543   2      
+ 544   2              /** 遍历字符 **/
+ 545   2              for(j = 0; dsc->name[j] == mgr.rd.buf[j] && dsc->name[j] != '\0'; ++j);
+ 546   2      
+ 547   2              /** 排除：j != rd_count，即符合补全要求的指令应当包含 rd.buf 中所有的字符 
+             -**/
+ 548   2              if(j != mgr.rd.count)
+ 549   2                  continue;
+ 550   2      
+ 551   2              /** 将当前匹配成功的命令名称进行打印 **/
+ 552   2              mysh_put_string("\r\n");
+ 553   2              mysh_put_string(dsc->name);
+ 554   2              cpt_cnt++;
+ 555   2              only = dsc;
+ 556   2          }
+ 557   1      
+ 558   1          /** 依据匹配结果进行区分显示 **/
+ 559   1          switch (cpt_cnt)
+ 560   1          {
+ 561   2          case 1: /** 当仅有一个指令符合补全时，将自动将命令名称填充到 rd.buf 并重新�
+             -��印命令 **/
+ 562   2              {
+ 563   3                  mysh_rd_cnt_t len = strlen(only->name);
+ 564   3                  mysh_put_string("\r\n");                /** 换行 **/
+ 565   3                  _mysh_print_shell_info();               /** 模拟打印提示符信息 **/
+ 566   3                  mysh_put_string(only->name);            /** 打印指令名称 **/
+ 567   3                  memcpy(mgr.rd.buf, only->name, len);    /** 重置 rd.buf **/
+ 568   3                  mgr.rd.count = len;
+ 569   3              }
+ 570   2              break;
+ 571   2      
+ 572   2          default:
+ 573   2              _mysh_mgr_rd_clear();       /** 重置 rd 接收 **/
+ 574   2              mgr.flag.set.is_endl = 1;   /** 强制换行结束当前接收 **/
+ 575   2              break;
+ 576   2          }
+ 577   1      }
+ 578          #endif
+ 579          
+ 580          
+ 581          /**
+ 582           * @brief 终端接收来自用户的输入，并执行相应的操作
+ 583           */
+ 584          static void _mysh_get_input (void)
+ 585          {
+ 586   1          char ch = mysh_get_char();
+ 587   1      
+ 588   1         switch (ch)
+ 589   1          {
+ 590   2          case 0:
+ 591   2              return;
+ 592   2      
+ 593   2          case 0x7f:
+ 594   2          case '\b':
+ 595   2              #if MYSH_SUPPORT_DIR_KEY && !MYSH_SUPPORT_DIR_KEY_FILTER
+ 596   2              if(!mgr.rd.cursor_pos)
+ 597   2                  _mysh_print_backpace();
+ 598   2              else
+ 599   2                  _mysh_remove_print_char();
+ 600   2              #else
+                      _mysh_print_backpace();
+                      #endif
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 11  
+
+ 603   2      
+ 604   2              return;
+ 605   2      
+ 606   2          #if MYSH_SUPPORT_DIR_KEY
+ 607   2          case MYSH_CTRL_SEQUENCE_DIR_CHAR_HEAD:
+ 608   2              mgr.flag.set.is_cseq = 1;
+ 609   2              mgr.cseq.buf += ch;
+ 610   2              mgr.cseq.count++;
+ 611   2              break;
+ 612   2          #endif
+ 613   2      
+ 614   2          case '\t':
+ 615   2              #if MYSH_SUPPORT_TAB_COMPETION
+ 616   2              _mysh_cmd_completion();
+ 617   2              #endif
+ 618   2              return ;
+ 619   2      
+ 620   2          case '\r':
+ 621   2          case '\n':
+ 622   2              mgr.flag.set.is_endl = 1;
+ 623   2              return;
+ 624   2      
+ 625   2          default:
+ 626   2              #if MYSH_SUPPORT_DIR_KEY
+ 627   2              if(!mgr.flag.set.is_cseq)
+ 628   2              {
+ 629   3                  /** 检查是否越界 **/
+ 630   3                  if(mgr.rd.count >= MYSH_RX_BUF_MAX)
+ 631   3                      break;
+ 632   3      
+ 633   3                  #if !MYSH_SUPPORT_DIR_KEY_FILTER
+ 634   3                  /** 推入 char **/
+ 635   3                  if(!mgr.rd.cursor_pos)
+ 636   3                      _mysh_push_normal_char(ch);
+ 637   3                  else
+ 638   3                      _mysh_insert_print_char(ch);
+ 639   3                  #else
+                          _mysh_push_normal_char(ch);
+                          #endif
+ 642   3              }
+ 643   2              else
+ 644   2                  _mysh_push_cseq_char(ch);       /** 将字符推入控制序列缓冲区 **/
+ 645   2              #else
+                      if(mgr.rd.count < MYSH_RX_BUF_MAX)
+                          _mysh_push_normal_char(ch);
+                      #endif
+ 649   2              break;
+ 650   2          }
+ 651   1      }
+ 652          
+ 653          
+ 654          /**
+ 655           * @brief 查询目标指令并执行
+ 656           */
+ 657          static void _mysh_cmd_search_and_exec(void)
+ 658          {
+ 659   1          mysh_cmd_cnt_t idx = 0;
+ 660   1      
+ 661   1          if(!mgr.cmd.arg.c)
+ 662   1              return;
+ 663   1      
+ 664   1          for(idx = 0; idx < mgr.cmd.list_count; ++idx)
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 12  
+
+ 665   1          {
+ 666   2              const struct mysh_cmd_dsc* dsc = mgr.cmd.list[idx];
+ 667   2      
+ 668   2              /** 命令名比较 **/
+ 669   2              if(!_mysh_str_cmp(dsc->name, mgr.cmd.arg.v[0]))
+ 670   2              {
+ 671   3                  /** 执行命令 **/
+ 672   3                  dsc->exec(mgr.cmd.arg.c, mgr.cmd.arg.v);
+ 673   3                  return;
+ 674   3              }
+ 675   2          }
+ 676   1      
+ 677   1          mysh_put_color_ctrl(MYSH_SHELL_ERR_COLOR());
+ 678   1          mysh_put_string("\"");
+ 679   1          mysh_put_string(mgr.cmd.arg.v[0]);
+ 680   1          mysh_put_string("\" is not found.\r\n");
+ 681   1          mysh_put_color_ctrl(MYSH_SHELL_RESET_COLOR());
+ 682   1      }
+ 683          
+ 684          
+ 685          
+ 686          
+ 687          /** ********************************* **
+ 688           *                                     *
+ 689           *        Inner Command Function       *
+ 690           *                                     *
+ 691           ** ********************************* **/
+ 692          #if MYSH_SUPPORT_INNER_COMMANDS
+ 693          #if MYSH_SUPPORT_INNER_COMMANDS_HELP
+ 694              static void help_exec (void);
+ 695          #endif
+ 696          #if MYSH_SUPPORT_INNER_COMMANDS_VER
+ 697              static void ver_exec (void);
+ 698          #endif
+ 699          #if MYSH_SUPPORT_INNER_COMMANDS_VIS
+ 700          static void vis_exec(int argc, char* argv[]);
+ 701          #endif
+ 702          #if MYSH_SUPPORT_INNER_COMMANDS_CLEAR
+ 703          static void clear_exec(void);
+ 704          #endif
+ 705          
+ 706          
+ 707          
+ 708          #if MYSH_SUPPORT_INNER_COMMANDS_HELP
+ 709          static void help_exec(void)
+ 710          {
+ 711   1          int idx = 0;
+ 712   1          for(idx = 0; idx < mgr.cmd.list_count; ++idx)
+ 713   1          {
+ 714   2              const struct mysh_cmd_dsc* dsc = mgr.cmd.list[idx];
+ 715   2              mysh_put_string(dsc->name);
+ 716   2              mysh_put_string("\t - ");
+ 717   2              mysh_put_string(dsc->man);
+ 718   2              mysh_put_string("\r\n");
+ 719   2          }
+ 720   1      }
+ 721          #endif
+ 722          
+ 723          #if MYSH_SUPPORT_INNER_COMMANDS_VER
+ 724          static void ver_exec(void)
+ 725          {
+ 726   1          mysh_put_string(MYSH_VERSION_STRING(MYSH_VERSION_TYPE, MYSH_VERSION_MAJOR, MYSH_VERSION_MINOR) "\r\n")
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 13  
+
+             -;
+ 727   1      }
+ 728          #endif
+ 729          
+ 730          #if MYSH_SUPPORT_INNER_COMMANDS_VIS
+ 731          static void vis_exec(int argc, char* argv[])
+ 732          {
+ 733   1          if(argc > 1)
+ 734   1              mysh_set_echo(!(*argv[1] - '0'));
+ 735   1      }
+ 736          #endif
+ 737          
+ 738          #if MYSH_SUPPORT_INNER_COMMANDS_CLEAR
+ 739          static void clear_exec(void)
+ 740          {
+ 741   1          mysh_put_shell_ctrl( MYSH_SHELL_CTRL_SCREEN_CLEAR() );
+ 742   1      }
+ 743          #endif
+ 744          
+ 745          
+ 746          static void _mysh_inner_cmd_register(void)
+ 747          {
+ 748   1          #if MYSH_SUPPORT_INNER_COMMANDS_HELP
+ 749   1          {
+ 750   2              /** help **/
+ 751   2              static struct mysh_cmd_dsc help_dsc;
+ 752   2              help_dsc.name = "help";
+ 753   2              help_dsc.man = "list all commands.";
+ 754   2              help_dsc.exec = (mysh_cmd_exec) help_exec;
+ 755   2              mysh_add_cmd(&help_dsc);
+ 756   2          }
+ 757   1          #endif
+ 758   1      
+ 759   1          #if MYSH_SUPPORT_INNER_COMMANDS_VER
+ 760   1          {
+ 761   2              /** ver **/
+ 762   2              static struct mysh_cmd_dsc ver_dsc;
+ 763   2              ver_dsc.name = "ver";
+ 764   2              ver_dsc.man = "show version information";
+ 765   2              ver_dsc.exec = (mysh_cmd_exec) ver_exec;
+ 766   2              mysh_add_cmd(&ver_dsc);
+ 767   2          }
+ 768   1          #endif
+ 769   1      
+ 770   1          #if MYSH_SUPPORT_INNER_COMMANDS_VIS
+ 771   1          {
+ 772   2              /** visible **/
+ 773   2              static struct mysh_cmd_dsc vis_dsc;
+ 774   2              vis_dsc.name = "vis";
+ 775   2              vis_dsc.man = "set output visible. 0: unvisible, 1: visible.";
+ 776   2              vis_dsc.exec = vis_exec;
+ 777   2              mysh_add_cmd(&vis_dsc);
+ 778   2          }
+ 779   1          #endif
+ 780   1      
+ 781   1          #if MYSH_SUPPORT_INNER_COMMANDS_CLEAR
+ 782   1          {
+ 783   2              /** clear **/
+ 784   2              static struct mysh_cmd_dsc clear_dsc;
+ 785   2              clear_dsc.name = "clear";
+ 786   2              clear_dsc.man = "clear the shell output and reset cursor's position.";
+ 787   2              clear_dsc.exec = (mysh_cmd_exec) clear_exec;
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 14  
+
+ 788   2              mysh_add_cmd(&clear_dsc);
+ 789   2          }
+ 790   1          #endif
+ 791   1      }
+ 792          #endif
+ 793          
+ 794          
+ 795          
+ 796          
+ 797          
+ 798          
+ 799          
+ 800          /** ********************************* **
+ 801           *                                     *
+ 802           *              Public API             *
+ 803           *                                     *
+ 804           ** ********************************* **/
+ 805          void mysh_init (void);
+ 806          void mysh_task_handler (void);
+ 807          int  mysh_add_cmd (const struct mysh_cmd_dsc* dsc);
+ 808          void mysh_print (const char* s);
+ 809          
+ 810          
+ 811          
+ 812          void mysh_init (void)
+ 813          {
+ 814   1          /** 初始化管理器 **/
+ 815   1          memset(&mgr, 0, sizeof(struct mysh_mgr));
+ 816   1      
+ 817   1          /** 设置输出可视化 **/
+ 818   1      #if MYSH_SUPPORT_OUTPUT_UNVISIBLE_IN_INIT
+                  mgr.opt.item.echo = 1;
+              #endif
+ 821   1      
+ 822   1          /** 注册内部指令 **/
+ 823   1      #if MYSH_SUPPORT_INNER_COMMANDS
+ 824   1          _mysh_inner_cmd_register();
+ 825   1      #endif
+ 826   1      }
+ 827          
+ 828          
+ 829          void mysh_task_handler (void)
+ 830          {
+ 831   1          /** 打印终端提示信息 **/
+ 832   1          if(mgr.flag.set.is_print_shell_info == 0)
+ 833   1          {
+ 834   2              mgr.flag.set.is_print_shell_info = 1;
+ 835   2              _mysh_print_shell_info();
+ 836   2          }
+ 837   1              
+ 838   1          /** 获取接收数据 **/
+ 839   1          _mysh_get_input();
+ 840   1      
+ 841   1          /** 解析接收的数据 **/
+ 842   1          if(mgr.flag.set.is_endl)
+ 843   1          {
+ 844   2              /** 换行打印 **/
+ 845   2              mysh_put_string("\r\n");
+ 846   2      
+ 847   2              /** 检查接收字符数量 **/
+ 848   2              if(mgr.rd.count)
+ 849   2              {
+C51 COMPILER V9.57.0.0   MYSH                                                              10/14/2023 19:22:09 PAGE 15  
+
+ 850   3                  /** 将字符串进行拆分 **/
+ 851   3                  _mysh_str_split(mgr.rd.buf);
+ 852   3      
+ 853   3                  /** 查询目标指令并执行 **/
+ 854   3                  _mysh_cmd_search_and_exec();
+ 855   3              }
+ 856   2      
+ 857   2              /** 重置管理器读取有关的变量 **/
+ 858   2              _mysh_mgr_rd_clear();
+ 859   2          }
+ 860   1      }
+ 861          
+ 862          
+ 863          int mysh_add_cmd (const struct mysh_cmd_dsc* dsc)
+ 864          {
+ 865   1          if(mgr.cmd.list_count < MYSH_CMD_COUNT_MAX)
+ 866   1          {
+ 867   2              mgr.cmd.list[mgr.cmd.list_count++] = dsc;
+ 868   2              return 0;
+ 869   2          }
+ 870   1          return -1;
+ 871   1      }
+ 872          
+ 873          void mysh_set_echo (mysh_opt_val_t opt)
+ 874          {
+ 875   1          mgr.opt.item.echo = opt;
+ 876   1      }
+ 877          
+ 878          
+ 879          
+ 880          
+ 881          
+ 882          
+ 883          
+ 884          
+ 885          
+ 886          
+ 887          
+ 888          
+ 889          
+ 890          
+ 891          
+ 892          
+ 893          
+ 894          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2260    ----
+   CONSTANT SIZE    =    288    ----
+   XDATA SIZE       =     88      52
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

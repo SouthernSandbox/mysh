@@ -1,0 +1,1 @@
+"mysh\mysh_porting.c" LARGE OPTIMIZE (8,SPEED) BROWSE INCDIR(.\user;.\mysh;.\board) DEBUG OBJECTEXTEND PRINT(.\Listings\mysh_porting.lst) OBJECT(.\Objects\mysh_porting.obj)

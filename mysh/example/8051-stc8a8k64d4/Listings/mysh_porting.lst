@@ -1,0 +1,89 @@
+C51 COMPILER V9.57.0.0   MYSH_PORTING                                                      10/14/2023 19:13:24 PAGE 1   
+
+
+C51 COMPILER V9.57.0.0, COMPILATION OF MODULE MYSH_PORTING
+OBJECT MODULE PLACED IN .\Objects\mysh_porting.obj
+COMPILER INVOKED BY: D:\Keil5_C51\install\C51\BIN\C51.EXE mysh\mysh_porting.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(.\us
+                    -er;.\mysh;.\board) DEBUG OBJECTEXTEND PRINT(.\Listings\mysh_porting.lst) OBJECT(.\Objects\mysh_porting.obj)
+
+line level    source
+
+   1          /**
+   2           * @file    mysh_porting.c
+   3           * @author  Southern Sandbox
+   4           * @brief   提供用于移植的接口函数的实现
+   5           * @version 0.1
+   6           * @date    2023-10-14
+   7           * 
+   8           * @copyright Copyright (c) 2023
+   9           * 
+  10           */
+  11          
+  12          #include "mysh.h"
+  13          #include "dev_uart.h"
+  14          
+  15          #ifdef __cplusplus
+              extern "C" {
+              #endif
+  18          
+  19          /**
+  20           * @brief 向 mysh 提供一个从用户端输入的字符
+  21           * 
+  22           * @note 请注意，当未读取到字符时，请确保函数返回的值为 0x0
+  23           * 
+  24           * @return char 
+  25           */
+  26          char mysh_get_char(void)
+  27          {
+  28   1              char ch = 0;
+  29   1          dev_uart1_read(&ch, sizeof(ch));
+  30   1          return ch;
+  31   1      }
+  32          
+  33          
+  34          
+  35          /**
+  36           * @brief 将 mysh 提供的一个字符进行输出
+  37           * 
+  38           * @param ch 
+  39           */
+  40          void mysh_put_char(char ch)
+  41          {
+  42   1          dev_uart1_write(&ch, sizeof(ch));
+  43   1      }
+  44          
+  45          
+  46          
+  47          #if MYSH_SUPPORT_PRINT_TIME_INFO
+  48          /**
+  49           * @brief 向 mysh 提供时间（时、分、秒）数据
+  50           * 
+  51           * @note hms[]：[0] - hour, [1] - min, [0] - sec
+  52           * 
+  53           * @param hms 
+  54           */
+C51 COMPILER V9.57.0.0   MYSH_PORTING                                                      10/14/2023 19:13:24 PAGE 2   
+
+  55          void mysh_get_time_data(mysh_uint8_t hms[3])
+  56          {
+  57   1          memset(hms, 0, 3 * sizeof(mysh_uint8_t));
+  58   1      }
+  59          #endif
+  60          
+  61          #ifdef __cplusplus
+              }
+              #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     50    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----       2
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

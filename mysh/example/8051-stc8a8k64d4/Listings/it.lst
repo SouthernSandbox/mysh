@@ -1,0 +1,61 @@
+C51 COMPILER V9.57.0.0   IT                                                                10/14/2023 13:40:46 PAGE 1   
+
+
+C51 COMPILER V9.57.0.0, COMPILATION OF MODULE IT
+OBJECT MODULE PLACED IN .\Objects\it.obj
+COMPILER INVOKED BY: D:\Keil5_C51\install\C51\BIN\C51.EXE user\it.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(.\user;.\mysh;
+                    -.\board) DEBUG OBJECTEXTEND PRINT(.\Listings\it.lst) OBJECT(.\Objects\it.obj)
+
+line level    source
+
+   1          #include "conf.h"
+   2          #include "dev_timer0.h"
+   3          #include "dev_uart.h"
+   4          
+   5          
+   6          void TIME0_ISR_Handler (void) interrupt TMR0_VECTOR
+   7          {
+   8   1          EA = 0;
+   9   1      
+  10   1          /** timer0 中断回调函数 **/
+  11   1          dev_timer0_irq_handler();
+  12   1      
+  13   1          /** UART1 接收空闲检查函数 **/
+  14   1          dev_uart1_rx_idle_check(dev_timer0_get_tick());
+  15   1      
+  16   1          EA = 1;
+  17   1      }
+  18          
+  19          
+  20          void UART1_ISR_Handler (void) interrupt UART1_VECTOR
+  21          {
+  22   1          EA = 0;
+  23   1          
+  24   1              if(RI)  // 接收中断
+  25   1          {
+  26   2              RI = 0;
+  27   2              dev_uart1_rx_irq_handler();
+  28   2          }
+  29   1      
+  30   1              if(TI)  // 发送中断
+  31   1              {
+  32   2              TI = 0;
+  33   2              dev_uart1_tx_irq_handler();
+  34   2              }
+  35   1          
+  36   1          EA = 1;
+  37   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    145    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
