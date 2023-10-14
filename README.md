@@ -1,4 +1,4 @@
-# mysh
+# ** mysh **
 1. ##### mysh 是一个轻量级的命令行程序，为用户提供一套命令行操作的接口，用于调试或者是信息查看。
 
 2. ##### mysh 最初的目标是为 8051 单片机提供简易的 shell 功能，因此采用兼容 C51 的 C89 标准，以确保对 8051 平台的兼容。
@@ -36,3 +36,11 @@
 8. ##### BUG:
     * 除开方向键外的输入控制码或者键码在输入时在当前未做保护，输入时请注意
     * 长按方向键有可能导致以外字符的回显，但只需要删除即可，不影响后续输入
+  
+9. ##### 图例
+    * 8051 单片机（使用 MobaXterm ）
+      ![example](https://github.com/SouthernSandbox/mysh/assets/75567944/5f29f8a1-baa5-4d52-be9e-b697910867b6)
+    * Windows (使用 cmd)
+      ![example](https://github.com/SouthernSandbox/mysh/assets/75567944/dc13d7f5-a0f3-4472-829b-285fa2b3b332)
+
+      
