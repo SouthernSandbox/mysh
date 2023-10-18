@@ -50,7 +50,9 @@ void mysh_put_char(char ch)
 /**
  * @brief 向 mysh 提供时间（时、分、秒）数据
  * 
- * @note hms[]：[0] - hour, [1] - min, [0] - sec
+ * @note 
+ *    hms[]：[0] - hour, [1] - min, [2] - sec
+ *    这个函数只有在开启打印时间信息的功能后才有效
  * 
  * @param hms 
  */
